@@ -7,48 +7,59 @@ import Calendar from "react-calendar";
 
 const Selectdate = (props) => {
   const [date, setDate] = useState(new Date());
-  // "CÔNG TẮC": Nếu false thì hiện Lịch, nếu true thì hiện Bảng Giờ
   const [showSlots, setShowSlots] = useState(false);
 
-  // Lấy thông tin bác sĩ từ trang trước hoặc dùng tên mặc định
   const selectedDoctor = props.location?.doctor?.doctor || {
-    name: "NGUYEN MANH DUNG",
+    name: "GS. TS. NGUYỄN MẠNH DŨNG",
   };
 
-  // Danh sách khung giờ khám
-  const slots = [
-    { id: 1, time: "09:00:00" },
-    { id: 2, time: "12:00:00" },
-    { id: 3, time: "15:00:00" },
+  // 1. DANH SÁCH KHUNG GIỜ DÀY ĐẶC (GIỐNG BỆNH VIỆN THỰC TẾ)
+  const allSlots = [
+    { id: 1, time: "07:30 AM" }, { id: 2, time: "07:45 AM" },
+    { id: 3, time: "08:00 AM" }, { id: 4, time: "08:15 AM" },
+    { id: 5, time: "08:30 AM" }, { id: 6, time: "08:45 AM" },
+    { id: 7, time: "09:00 AM" }, { id: 8, time: "09:15 AM" },
+    { id: 9, time: "09:30 AM" }, { id: 10, time: "09:45 AM" },
+    { id: 11, time: "10:00 AM" }, { id: 12, time: "10:15 AM" },
+    { id: 13, time: "10:45 AM" }, { id: 14, time: "11:00 AM" },
+    { id: 15, time: "13:30 PM" }, { id: 16, time: "14:00 PM" },
+    { id: 17, time: "14:30 PM" }, { id: 18, time: "15:00 PM" },
+    { id: 19, time: "15:30 PM" }, { id: 20, time: "16:00 PM" },
   ];
 
-  // Logic để chặn không cho chọn ngày quá khứ
-  var previous = new Date();
-  previous.setDate(previous.getDate() - 1);
+  // 2. KHÓA CÁC GIỜ BỆNH NHÂN GIẢ LẬP ĐANG CHIẾM (7:30 ĐẾN 10:15)
+  const busySlots = [
+    "07:30 AM", "07:45 AM", "08:00 AM", "08:15 AM", 
+    "08:30 AM", "08:45 AM", "09:00 AM", "09:15 AM", 
+    "09:30 AM", "09:45 AM", "10:00 AM", "10:15 AM"
+  ];
 
-  // Hàm xử lý khi nhấn "Book Now"
+  // Logic chặn ngày cũ
+  var previous = new Date();
+  previous.setHours(0,0,0,0); 
+
+  const isSlotBusy = (time) => {
+    const todayStr = new Date().toLocaleDateString('vi-VN');
+    const selectedDateStr = date.toLocaleDateString('vi-VN');
+    // Nếu là ngày hiện tại, khóa các giờ bận
+    return selectedDateStr === todayStr && busySlots.includes(time);
+  };
+
   const handleBooking = (slotTime) => {
-    // 1. Đóng gói thông tin lịch hẹn
     const appointmentInfo = {
-      date: date.toDateString(),
+      patientName: "Bệnh Nhân Demo",
+      date: date.toLocaleDateString('vi-VN'),
       time: slotTime,
       doctorName: selectedDoctor.name,
-      status: "Confirmed (At Hospital)", // Trạng thái khám tại viện
+      status: "Confirmed",
+      service: "Khám chuyên khoa"
     };
 
-    // 2. Lưu vào sessionStorage (Dữ liệu sẽ MẤT khi tắt trình duyệt)
-    const currentData = JSON.parse(
-      sessionStorage.getItem("myAppointments") || "[]"
-    );
-    currentData.push(appointmentInfo);
-    sessionStorage.setItem("myAppointments", JSON.stringify(currentData));
+    const allApps = JSON.parse(localStorage.getItem("allAppointments") || "[]");
+    allApps.push(appointmentInfo);
+    localStorage.setItem("allAppointments", JSON.stringify(allApps));
 
-    // 3. Thông báo cho người dùng
-    alert(
-      `Successfully booked! Please come to the hospital at ${slotTime} on ${date.toDateString()}.`
-    );
-
-    // 4. Chuyển sang trang xem trạng thái lịch hẹn
+    alert(`Đặt lịch thành công! Mã số khám của bạn đã được ưu tiên vào lúc ${slotTime}.`);
     props.history.push("/patient/appointment-status");
   };
 
@@ -56,12 +67,10 @@ const Selectdate = (props) => {
     <div className="bg-dark" style={{ minHeight: "100vh" }}>
       <Navbar />
       <div className="row m-5" style={{ maxWidth: "100%" }}>
-        {/* Thanh bên trái */}
         <div className="col-3 col-md-3 p-4 bg-white" style={{ height: "80vh" }}>
           <Leftside />
         </div>
 
-        {/* Khu vực chính nội dung */}
         <div
           className="col-9 col-md-9 p-4 text-white text-center"
           style={{
@@ -71,81 +80,68 @@ const Selectdate = (props) => {
           }}
         >
           {!showSlots ? (
-            /* --- GIAO DIỆN CHỌN NGÀY --- */
             <div>
-              <h2 className="mb-4 text-uppercase font-weight-bold">Select Appointment Date</h2>
+              <h2 className="mb-4 text-uppercase font-weight-bold">Chọn ngày khám</h2>
               <div className="d-flex justify-content-center">
-                <div
-                  style={{
-                    backgroundColor: "white",
-                    padding: "20px",
-                    borderRadius: "12px",
-                    color: "black",
-                    boxShadow: "0 4px 15px rgba(0,0,0,0.5)"
-                  }}
-                >
+                <div style={{ backgroundColor: "white", padding: "20px", borderRadius: "12px", color: "black" }}>
                   <Calendar
-                    tileDisabled={({ date }) =>
-                      date.getDay() === 0 || date < previous
-                    }
+                    tileDisabled={({ date }) => date.getDay() === 0 || date < previous}
                     onChange={setDate}
                     value={date}
                   />
-                  <p className="mt-3 font-weight-bold text-primary">
-                    Selected: {date.toDateString()}
-                  </p>
+                  <p className="mt-3 font-weight-bold text-primary">Ngày chọn: {date.toLocaleDateString('vi-VN')}</p>
                 </div>
               </div>
-              <Button
-                color="primary"
-                className="mt-5 px-5 btn-lg shadow"
-                onClick={() => setShowSlots(true)}
-              >
-                Confirm And View Slots
+              <Button color="primary" className="mt-5 px-5 btn-lg shadow" onClick={() => setShowSlots(true)}>
+                Xem khung giờ trống
               </Button>
             </div>
           ) : (
-            /* --- GIAO DIỆN CHỌN GIỜ --- */
             <div>
-              <h2 className="mb-4 text-uppercase font-weight-bold">Available Slots</h2>
-              <p className="mb-4 bg-dark py-2 rounded">
-                Doctor: <span className="text-warning">{selectedDoctor.name}</span> | Date: <span className="text-warning">{date.toDateString()}</span>
-              </p>
+              <h4 className="mb-3 text-uppercase">Khung giờ của bác sĩ {selectedDoctor.name}</h4>
+              <p className="small mb-4 text-light">Hệ thống tự động cập nhật các slot còn trống theo thời gian thực</p>
               
-              <div className="mx-auto" style={{ maxWidth: "90%" }}>
-                <Table dark hover bordered responsive>
-                  <thead>
-                    <tr className="bg-primary text-white">
-                      <th>Time Slot</th>
-                      <th>Action</th>
+              <div className="mx-auto" style={{ maxWidth: "90%", height: "50vh", overflowY: "auto", border: "1px solid #dee2e6", borderRadius: "8px" }}>
+                <Table dark hover bordered className="mb-0">
+                  <thead className="bg-primary" style={{ position: "sticky", top: 0, zIndex: 1 }}>
+                    <tr>
+                      <th>Giờ Khám</th>
+                      <th>Trạng Thái</th>
+                      <th>Thao Tác</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {slots.map((slot) => (
-                      <tr key={slot.id}>
-                        <td className="align-middle font-weight-bold">{slot.time}</td>
-                        <td>
-                          <Button
-                            color="success"
-                            size="sm"
-                            className="px-4"
-                            onClick={() => handleBooking(slot.time)}
-                          >
-                            Book Now
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                    {allSlots.map((slot) => {
+                      const busy = isSlotBusy(slot.time);
+                      return (
+                        <tr key={slot.id}>
+                          <td className="align-middle font-weight-bold">{slot.time}</td>
+                          <td className="align-middle">
+                            {busy ? (
+                              <span className="badge badge-danger">Đã có người đặt</span>
+                            ) : (
+                              <span className="badge badge-success">Sẵn sàng</span>
+                            )}
+                          </td>
+                          <td>
+                            <Button
+                              color={busy ? "secondary" : "success"}
+                              disabled={busy}
+                              size="sm"
+                              onClick={() => handleBooking(slot.time)}
+                            >
+                              {busy ? "Hết chỗ" : "Chọn ca này"}
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </Table>
               </div>
 
-              <Button
-                color="danger"
-                className="mt-4 shadow"
-                onClick={() => setShowSlots(false)}
-              >
-                ← Back to Calendar
+              <Button color="danger" className="mt-4 shadow" onClick={() => setShowSlots(false)}>
+                ← Quay lại chọn ngày
               </Button>
             </div>
           )}

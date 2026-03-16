@@ -2,339 +2,211 @@ const router = require("express").Router();
 const doctors = require("../models/doctor.model");
 const jwt = require("jsonwebtoken");
 require("dotenv").config();
-const appointmentImport = require("../models/appointment.model");
+
+// Import Model Appointment
+const Appointment = require("../models/appointment.model"); 
 const { Doctor, Slot, DateSchedule } = doctors;
-const { Appointment, Feedback } = appointmentImport;
 const bcrypt = require('../bcrypt/bcrypt');
 
+// Hàm tạo slot mặc định
 function createDate(date) {
-	return new DateSchedule({
-		date: date,
-		slots: [
-			new Slot({
-				time: "09:00:00",
-				isBooked: false,
-			}),
-			new Slot({
-				time: "12:00:00",
-				isBooked: false,
-			}),
-			new Slot({
-				time: "15:00:00",
-				isBooked: false,
-			}),
-		],
-	});
+    return new DateSchedule({
+        date: date,
+        slots: [
+            new Slot({ time: "09:00:00", isBooked: false }),
+            new Slot({ time: "12:00:00", isBooked: false }),
+            new Slot({ time: "15:00:00", isBooked: false }),
+        ],
+    });
 }
 
-// To get all the doctors
-// **ONLY FOR TESTING**
+// 1. Lấy danh sách bác sĩ
 router.route("/").get((req, res) => {
-	Doctor.find()
-		.then((doctors) => {
-			res.json(doctors);
-		})
-		.catch((err) => {
-			res.status(400).json(`Error : ${err}`);
-		});
+    Doctor.find()
+        .then((doctors) => res.json(doctors))
+        .catch((err) => res.status(400).json(`Error : ${err}`));
 });
 
-// To add a doctor
-router.route("/add").post((req, res) => {
-	const username = req.body.username; // Required.. can't be undefined
-	const password = req.body.password;
-	const name = req.body.name;
-	const phoneNumber = req.body.phoneNumber;
-	const specialization = req.body.specialization;
-	const feesPerSession = req.body.feesPerSession;
-
-	const newDoctor = new Doctor({
-		username,
-		password,
-		name,
-		phoneNumber,
-		specialization,
-		feesPerSession,
-	});
-
-	newDoctor
-		.save()
-		.then(() => {
-			res.json("Doctor added");
-			// console.log(`${newDoctor} added!`)
-		})
-		.catch((err) => {
-			res.status(400).json(`Error : ${err}`);
-			// console.log(err);
-		});
-});
-
-// To update a doctor
-router.route("/update").put((req, res) => {
-	const username = req.body.username; // Required.. can't be undefined
-
-	Doctor.findOne({ username: username }).then((doctor) => {
-		if (doctor) {
-			doctor.name = req.body.name;
-			doctor.phoneNumber = req.body.phoneNumber;
-			doctor.specialization = req.body.specialization;
-			doctor.feesPerSession = req.body.feesPerSession;
-
-			doctor
-				.save()
-				.then(() => {
-					res.json("Doctor updated");
-					// console.log(`${doctor} updated!`)
-				})
-				.catch((err) => {
-					res.status(400).json(`Error : ${err}`);
-					// console.log(err);
-				});
-		}
-	});
-});
-
-// Doctor login
+// 2. Đăng nhập Bác sĩ
 router.route("/login").post(async (req, res) => {
-	try {
-		const username = req.body.username;
+    try {
+        const { username, password } = req.body;
+        const passwordSalt = process.env.PASSWORD_SALT;
+        const encryptedPassword = bcrypt.hash(password, passwordSalt);
 
-		// Password entered by the user
-		const plainTextPassword = req.body.password;
+        const doctor = await Doctor.findOne({ username, password: encryptedPassword });
 
-		// Password Salt for hashing purpose
-		const passwordSalt = process.env.PASSWORD_SALT;
+        if (!doctor) {
+            return res.status(201).json({ message: "wrong username or password" });
+        }
 
-		// Encrypted password after hashing operation
-		const encryptedPassword = bcrypt.hash(plainTextPassword, passwordSalt)
+        const token = jwt.sign(JSON.stringify(doctor), process.env.KEY, {
+            algorithm: process.env.ALGORITHM,
+        });
 
-		const doctor = await Doctor.findOne({
-			username: username,
-			password: encryptedPassword,
-		});
-
-		console.log(doctor);
-
-		if (doctor === null) {
-			return res.status(201).json({ message: "wrong username or password" });
-		}
-
-		// Doctor found, return the token to the client side
-		const token = jwt.sign(
-			JSON.stringify(doctor),
-			process.env.KEY, 
-			{
-				algorithm: process.env.ALGORITHM,
-			}
-		);
-
-		return res.status(200).json({ token: token.toString() });
-
-	} catch (err) {
-		console.log(err);
-		return res.status(400).json(err);
-	}
+        return res.status(200).json({ token: token.toString() });
+    } catch (err) {
+        res.status(400).json(err);
+    }
 });
 
-// To get the slots available for the date
+// 3. Lấy Slot trống
 router.route("/get-slots").post(async (req, res) => {
-	try {
-		const id = req.body.doctorId; // Doctor's id
-		const date = req.body.date; // Date to book
+    try {
+        const { doctorId, date } = req.body;
+        const doctor = await Doctor.findOne({ _id: doctorId });
 
-		const doctor = await Doctor.findOne({ _id: id });
+        if (!doctor) return res.status(201).json({ message: "Doctor not found" });
 
-		// Doctor not found
-		if (doctor === null) {
-			console.log("Doctor not found in the database!");
-			return res.status(201).json({
-				message: "Doctor not found in the database!",
-			});
-		}
+        let existingDate = doctor.dates.find(d => d.date === date);
+        if (existingDate) return res.status(200).json(existingDate);
 
-		// Doctor found
-		// Find the date
-		let count = 0;
-		for (const i of doctor.dates) {
-			if (i.date === date) {
-				return res.status(200).json(i);
-			}
-			count++;
-		}
-
-		const oldLength = count;
-
-		// Add new slots if date not found in the db
-		const dateSchedule = createDate(date);
-		const updatedDoctor = await Doctor.findOneAndUpdate(
-			{ _id: doctor._id },
-			{ $push: { dates: dateSchedule } },
-			{ new: true }
-		);
-
-		if (updatedDoctor) {
-			return res.status(200).json(updatedDoctor.dates[oldLength]);
-		} else {
-			const err = { err: "an error occurred!" };
-			throw err;
-		}
-	} catch (err) {
-		console.log(err);
-		return res.status(400).json({
-			message: err,
-		});
-	}
+        const dateSchedule = createDate(date);
+        const updatedDoctor = await Doctor.findOneAndUpdate(
+            { _id: doctorId },
+            { $push: { dates: dateSchedule } },
+            { new: true }
+        );
+        res.status(200).json(updatedDoctor.dates[updatedDoctor.dates.length - 1]);
+    } catch (err) {
+        res.status(400).json({ message: err });
+    }
 });
 
+// 4. Đặt lịch hẹn (Book Slot)
 router.route("/book-slot").post((req, res) => {
-	const patientId = req.body.googleId; // Patient's google id
-	const patientName = req.body.patientName; // Patient's name
-	const doctorId = req.body.doctorId; // Doctor's id 606460d2e0dd28cc76d9b0f3 
-	const slotId = req.body.slotId; // Id of that particular slot
-	const dateId = req.body.dateId; // Id of that particular date
-	const meetLink = "";
+    // Thêm bookedBy từ req.body gửi lên
+    const { googleId, patientName, doctorId, slotId, dateId, bookedBy } = req.body;
 
-	Doctor.findOne({ _id: doctorId }).then((doctor) => {
-		const date = doctor.dates.id(dateId);
-		const slot = date.slots.id(slotId);
-		slot.isBooked = true;
-		doctor
-			.save()
-			.then(() => {
-				// Create an entry in the appointment database
-				const newAppointment = new Appointment({
-					doctorId,
-					dateId,
-					slotId,
-					patientId,
-					date: date.date,
-					slotTime: slot.time,
-					doctorName: doctor.name,
-					doctorEmail: doctor.email,
-					patientName: patientName,
-					googleMeetLink: meetLink,
-					feedback: new Feedback()
-				});
+    Doctor.findOne({ _id: doctorId }).then((doctor) => {
+        const dateObj = doctor.dates.id(dateId);
+        const slot = dateObj.slots.id(slotId);
+        slot.isBooked = true;
 
-				console.log(newAppointment);
+        doctor.save().then(() => {
+            const newAppointment = new Appointment({
+                doctorId,
+                dateId,
+                slotId,
+                patientId: googleId,
+                date: dateObj.date,
+                slotTime: slot.time,
+                doctorName: doctor.name,
+                patientName: patientName,
+                bookedBy: bookedBy, // LƯU Tên đăng nhập hoặc Email người đang ngồi đặt
+                status: 'pending'
+            });
 
-				newAppointment
-					.save()
-					.then((appointment) => {
-						return res.status(200).json(appointment);
-					})
-					.catch((err) => {
-						console.log(err);
-						res.status(400).json(err);
-					});
-			})
-			.catch((err) => {
-				console.log(err);
-				res.status(400).json({
-					message: `An error occurred : ${err}`,
-				});
-			});
-	});
+            newAppointment.save()
+                .then((appointment) => res.status(200).json(appointment))
+                .catch((err) => res.status(400).json(err));
+        });
+    });
 });
 
-router.route("/appointments").post(async (req, res) => {
-	try {
-		const doctorId = req.body.doctorId;
-		const appointments = await Appointment.find({
-			doctorId: doctorId,
-		});
-		// res.status(200).json(appointments);
-		const sortedAppointments = appointments.sort((a, b) => {
-			return (
-				Date.parse(b.date + "T" + b.slotTime) -
-				Date.parse(a.date + "T" + a.slotTime)
-			);
-		});
-
-		res.status(200).json(sortedAppointments);
-	} catch (err) {
-		console.log(err);
-		res.status(400).json(err);
-	}
-});
-
-router.route("/appointment/:id").get(async (req, res) => {
-	try {
-		const appointmentId = req.params.id;
-		const appointment = await Appointment.findOne({
-			_id: appointmentId,
-		});
-
-		res.status(200).json(appointment);
-	} catch (err) {
-		console.log(err);
-		res.status(400).json(err);
-	}
-});
-
+// 5. Lấy lịch hẹn HÔM NAY (Chỉ lấy ca chưa hoàn thành)
 router.route('/todays-appointments').post(async (req, res) => {
-	try {
-		const date = new Date()
-		let currDate = date.getFullYear().toString()
-		const month = date.getMonth() + 1
-		const day = date.getDate()
+    try {
+        const { doctorId } = req.body;
+        const now = new Date();
+        const currDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`; 
 
-		currDate += month < 10 ? ('-0' + month.toString()) : '-' + month.toString()
-		currDate += day < 10 ? ('-0' + day.toString()) : '-' + day.toString()
+        const appointments = await Appointment.find({
+            $or: [
+                { doctorId: doctorId },
+                { doctorId: doctorId?.toString() }
+            ],
+            date: currDate,
+            status: { $ne: 'Finished' } // Không lấy ca đã khám xong
+        });
 
-		const doctorId = req.body.doctorId;
+        const sorted = appointments.sort((a, b) => (a.slotTime || "").localeCompare(b.slotTime || ""));
+        res.status(200).json(sorted);
+    } catch (err) {
+        res.status(400).json(err);
+    }
+});
 
-		const appointments = await Appointment.find({ doctorId: doctorId, date: currDate });
+// 6. Xử lý khi bấm nút KHÁM xong (Hoàn thành)
+router.post('/finish-appointment', async (req, res) => {
+    try {
+        const { appointmentId } = req.body;
+        
+        await Appointment.findByIdAndUpdate(
+            appointmentId, 
+            { status: 'Finished' }
+        );
 
-		const sortedAppointments = appointments.sort((a, b) => {
-			return (
-				Date.parse(a.date + "T" + a.slotTime) - Date.parse(b.date + "T" + b.slotTime)
-			);
-		});
+        res.json({ success: true, message: "Đã chuyển vào lịch sử khám!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
-		res.status(200).json(sortedAppointments);
-	}
-	catch (err) {
-		console.log(err);
-		res.status(400).json(err);
-	}
-})
+// 7. Lấy lịch sử tất cả ca đã khám
+router.route('/appointment-history').post(async (req, res) => {
+    try {
+        const { doctorId } = req.body;
+        const history = await Appointment.find({
+            $or: [
+                { doctorId: doctorId },
+                { doctorId: doctorId?.toString() }
+            ],
+            status: 'Finished'
+        }).sort({ date: -1, slotTime: -1 });
 
-router.route('/previous-appointments').post(async (req, res) => {
-	try {
-		const doctorId = req.body.doctorId;
+        res.status(200).json(history);
+    } catch (err) {
+        res.status(400).json(err);
+    }
+});
 
-		const appointments = await Appointment.find({ doctorId: doctorId });
+// 8. Lấy lịch sử khám của riêng 1 bệnh nhân
+router.route('/patient-history').post(async (req, res) => {
+    try {
+        const { bookedBy } = req.body; // Nhận định danh từ Frontend gửi lên
+        
+        // Nếu không gửi thông tin định danh, trả về mảng rỗng ngay lập tức
+        if (!bookedBy) return res.json([]);
 
-		// Get current dateTime
-		const date = new Date()
-		let currDateTime = date.getFullYear().toString()
-		const month = date.getMonth() + 1
-		const day = date.getDate()
-		const hour = date.getHours()
-		const minutes = date.getMinutes()
-		const seconds = date.getSeconds()
+        const history = await Appointment.find({
+            bookedBy: bookedBy, // CHÌA KHÓA BẢO MẬT: Chỉ lấy ca của mình
+            status: 'Finished'
+        }).sort({ date: -1 });
+        
+        res.status(200).json(history);
+    } catch (err) {
+        res.status(400).json(err);
+    }
+});
+// API lấy lịch đang chờ (Appointment Status) - Chỉ cho chính chủ
+router.route('/patient-status').post(async (req, res) => {
+    try {
+        const { bookedBy } = req.body;
+        if (!bookedBy) return res.json([]);
 
-		currDateTime += month < 10 ? ('-0' + month.toString()) : '-' + month.toString()
-		currDateTime += day < 10 ? ('-0' + day.toString()) : '-' + day.toString()
-		currDateTime += hour < 10 ? ('T0' + hour.toString()) : 'T' + hour.toString()
-		currDateTime += minutes < 10 ? (':0' + minutes.toString()) : ':' + minutes.toString()
-		currDateTime += seconds < 10 ? (':0' + seconds.toString()) : ':' + seconds.toString()
+        const status = await Appointment.find({
+            bookedBy: bookedBy,
+            status: { $ne: 'Finished' } // Lấy những ca chưa khám xong
+        }).sort({ date: 1 });
 
-		const filteredAppointments = appointments.filter((appointment) => {
-			return Date.parse(currDateTime) >= Date.parse(appointment.date + 'T' + appointment.slotTime)
-		})
-
-		const sortedAppointments = filteredAppointments.sort((a, b) => {
-			return Date.parse(b.date + 'T' + b.slotTime) - Date.parse(a.date + 'T' + a.slotTime)
-		})
-
-		res.status(200).json(sortedAppointments);
-	}
-	catch (err) {
-		console.log(err);
-		res.status(400).json(err);
-	}
-})
+        res.status(200).json(status);
+    } catch (err) {
+        res.status(400).json(err);
+    }
+});
+// 9. API gửi Đánh giá & Phản hồi
+router.post('/submit-feedback', async (req, res) => {
+    try {
+        const { appointmentId, rating, feedbackContent } = req.body;
+        await Appointment.findByIdAndUpdate(
+            appointmentId, 
+            { rating: rating, feedbackContent: feedbackContent }
+        );
+        res.json({ success: true, message: "Cảm ơn bạn đã đánh giá!" });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 
 module.exports = router;

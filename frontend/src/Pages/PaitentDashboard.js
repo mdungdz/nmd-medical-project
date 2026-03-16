@@ -1,4 +1,5 @@
-import React, { useContext, useState, useEffect } from "react"; // Đã xóa gapi thừa
+// đăng nhập bệnh nhân file 1 thông tin cá nhân
+import React, { useContext, useState, useEffect, useRef } from "react";
 import Navbar from "../Basic/Navbar";
 import Leftside from "../Dashbaord/LeftsidePatient";
 import Footer from "../Basic/Footer"; 
@@ -7,165 +8,241 @@ import "../Dashbaord/dashboard.css";
 import { AuthContext } from "../Auth/AuthContext";
 
 const PaitentDashboard = () => {
-  // KHỞI TẠO DỮ LIỆU TỪ MÁY ĐỂ HIỆN NGAY (GIỮ NGUYÊN)
+  // 1. Khởi tạo State: Ưu tiên lấy từ localStorage để chuyển trang không bị mất dữ liệu
   const [patient, setPatient] = useState({
-    name: window.localStorage.getItem("patientName") || "",
+    name: window.localStorage.getItem("patientName") || "Nguyễn Văn Duy",
     email: window.localStorage.getItem("patientEmail") || "",
     phoneNumber: window.localStorage.getItem("patientPhone") || "",
-    _id: window.localStorage.getItem("patientId") || ""
+    picture: window.localStorage.getItem("patientPicture") || "", 
+    _id: window.localStorage.getItem("patientId") || "",
+    bmi: window.localStorage.getItem("patientBMI") || "22.5",
+    bloodGroup: window.localStorage.getItem("patientBlood") || "O+"
   });
   
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempInfo, setTempInfo] = useState({ 
+    email: patient.email, 
+    phoneNumber: patient.phoneNumber 
+  });
+
+  const fileInputRef = useRef(null);
   const [appointmentCount, setAppointmentCount] = useState(0);
-  const [totalVisits, setTotalVisits] = useState(0);
-  const [notifications, setNotifications] = useState(0);
-  
-  // TẮT LOADING ĐỂ TRANG HIỆN RA NGAY
-  const [loading] = useState(false); // Đã xóa setLoading vì không dùng tới
   const { googleId } = useContext(AuthContext);
+
+  // 2. Đồng bộ tempInfo khi patient thay đổi (để khi load từ local xong tempInfo cũng có dữ liệu luôn)
+  useEffect(() => {
+    setTempInfo({
+      email: patient.email,
+      phoneNumber: patient.phoneNumber
+    });
+  }, [patient]);
 
   useEffect(() => {
     const getPatientDetails = async () => {
       try {
         const localId = window.localStorage.getItem("patientId");
         const idToUse = googleId || localId;
-
         if (idToUse) {
           const res = await Axios.get(`${process.env.REACT_APP_SERVER_URL}/patients/getPatientDetails/${idToUse}`);
-          if (res.status === 200) {
-            setPatient(res.data);
-            const appointRes = await Axios.get(`${process.env.REACT_APP_SERVER_URL}/appointments/patient/${res.data._id}`);
-            if (appointRes.status === 200) {
-              const allApps = appointRes.data;
-              setAppointmentCount(allApps.filter(app => ["Pending", "Confirmed"].includes(app.status)).length);
-              setTotalVisits(allApps.filter(app => app.status === "Completed").length);
-              setNotifications(allApps.filter(app => app.status === "Confirmed").length);
-            }
+          if (res.status === 200 && res.data) {
+            const data = res.data;
+            setPatient(data);
+            
+            // 3. Cập nhật localStorage mỗi khi Fetch dữ liệu mới từ Server thành công
+            window.localStorage.setItem("patientName", data.name || "");
+            window.localStorage.setItem("patientEmail", data.email || "");
+            window.localStorage.setItem("patientPhone", data.phoneNumber || "");
+            window.localStorage.setItem("patientBMI", data.bmi || "22.5");
+            window.localStorage.setItem("patientBlood", data.bloodGroup || "O+");
+            if (data._id) window.localStorage.setItem("patientId", data._id);
+            if (data.picture) window.localStorage.setItem("patientPicture", data.picture);
           }
         }
-      } catch (err) { 
-        console.log("Lỗi dữ liệu"); 
-      }
+      } catch (err) { console.log("Sử dụng dữ liệu Local"); }
     };
     getPatientDetails();
   }, [googleId]);
 
-  return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", backgroundColor: "#000" }}>
-      <Navbar />
+  const handleSave = async () => {
+    try {
+      // 4. Lưu vào máy (localStorage) trước để giao diện mượt mà
+      window.localStorage.setItem("patientEmail", tempInfo.email);
+      window.localStorage.setItem("patientPhone", tempInfo.phoneNumber);
       
-      {loading ? (
-        <div className="d-flex justify-content-center align-items-center" style={{ height: "80vh" }}>
-          <div className="spinner-border text-warning" style={{ width: "5rem", height: "5rem" }}></div>
-        </div>
-      ) : (
-        <div className="container-fluid py-4" style={{ flex: 1 }}>
-          <div className="row justify-content-center m-0">
+      await Axios.post(`${process.env.REACT_APP_SERVER_URL}/patients/update-profile/${patient._id}`, tempInfo);
+      
+      setPatient({ ...patient, email: tempInfo.email, phoneNumber: tempInfo.phoneNumber });
+      setIsEditing(false);
+      alert("Cập nhật thông tin thành công!");
+    } catch (err) {
+      // Trường hợp Server lỗi vẫn cho phép lưu tạm ở máy
+      setPatient({ ...patient, email: tempInfo.email, phoneNumber: tempInfo.phoneNumber });
+      setIsEditing(false);
+      alert("Đã lưu thay đổi vào trình duyệt!");
+    }
+  };
+
+  // Hàm xử lý khi chọn ảnh (nếu ông muốn lưu cả ảnh vào localStorage)
+  const handleAvatarChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result;
+        setPatient(prev => ({ ...prev, picture: base64String }));
+        window.localStorage.setItem("patientPicture", base64String);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100vh", width: "100vw", overflow: "hidden", backgroundColor: "#f8fafc" }}>
+      <Navbar />
+      <div style={{ display: "flex", flex: 1, width: "100%", overflow: "hidden" }}>
+        <div style={{ width: "280px", minWidth: "280px", backgroundColor: "#0f172a" }}><Leftside /></div>
+        <div style={{ flex: 1, height: "100%", overflowY: "auto", borderLeft: "6px solid #fdbb2d", display: "flex", flexDirection: "column" }}>
+          
+          <div className="container-fluid p-0" style={{ width: "100%", padding: "40px" }}>
             
-            <div className="col-md-3 px-2">
-              <div className="bg-white p-3 shadow-sm" style={{ borderRadius: "20px", height: "82vh" }}>
-                <Leftside />
-              </div>
-            </div>
-
-            <div className="col-md-9 px-2">
-              <div className="bg-white shadow-lg p-4" style={{ 
-                borderRadius: "20px", 
-                height: "82vh", 
-                borderLeft: "15px solid #ffc107", 
-                display: "flex", 
-                flexDirection: "column" 
-              }}>
-                
-                <div className="d-flex justify-content-between align-items-center mb-3">
-                    <h3 className="font-weight-bold text-dark mb-0 text-uppercase" style={{ letterSpacing: "1px" }}>
-                        📋 BẢNG ĐIỀU KHIỂN BỆNH NHÂN
-                    </h3>
-                    <div className="badge badge-warning p-2 px-4 shadow-sm text-dark font-weight-bold" style={{ borderRadius: "10px" }}>Bệnh nhân</div>
+            {/* TIÊU ĐỀ */}
+            <div className="d-flex justify-content-between align-items-center mb-5">
+                <div>
+                  <h3 className="font-weight-bold text-dark mb-1 text-uppercase" style={{ letterSpacing: "1px" }}>📋 Bảng điều khiển</h3>
+                  <div style={{ height: "5px", width: "40px", background: "#fdbb2d", borderRadius: "10px" }}></div>
                 </div>
-                <hr className="mt-0 mb-4" />
-                
-                <div style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }} className="custom-scrollbar pr-2">
-                  
-                  <div className="row mb-5"> 
-                    <div className="col-md-4 mb-3">
-                      <div className="card border-0 shadow-sm text-white p-4" style={{ borderRadius: "20px", background: "linear-gradient(45deg, #17a2b8, #117a8b)" }}>
-                        <h6 className="text-uppercase small font-weight-bold opacity-80">Lịch hẹn sắp tới</h6>
-                        <h2 className="mb-0 font-weight-bold">{appointmentCount < 10 ? `0${appointmentCount}` : appointmentCount}</h2>
-                      </div>
-                    </div>
-                    <div className="col-md-4 mb-3">
-                      <div className="card border-0 shadow-sm text-white p-4" style={{ borderRadius: "20px", background: "linear-gradient(45deg, #28a745, #1e7e34)" }}>
-                        <h6 className="text-uppercase small font-weight-bold opacity-80">Tổng lần khám</h6>
-                        <h2 className="mb-0 font-weight-bold">{totalVisits < 10 ? `0${totalVisits}` : totalVisits}</h2>
-                      </div>
-                    </div>
-                    <div className="col-md-4 mb-3">
-                      <div className="card border-0 shadow-sm text-dark p-4" style={{ borderRadius: "20px", background: "linear-gradient(45deg, #ffc107, #e0a800)" }}>
-                        <h6 className="text-uppercase small font-weight-bold opacity-80">Thông báo mới</h6>
-                        <h2 className="mb-0 font-weight-bold">{notifications < 10 ? `0${notifications}` : notifications}</h2>
-                      </div>
-                    </div>
-                  </div>
+                <div className="badge p-2 px-4 text-dark font-weight-bold shadow-sm" style={{ backgroundColor: "#fdbb2d", borderRadius: "5px" }}>BỆNH NHÂN</div>
+            </div>
+            
+            {/* THẺ CHỈ SỐ */}
+            <div className="row mx-0 g-4" style={{ display: "flex", flexWrap: "wrap" }}> 
+              <div className="col-md-4 mb-4 d-flex">
+                <div className="card border-0 shadow-sm text-white p-4 w-100 stat-card" style={{ borderRadius: "24px", background: "linear-gradient(135deg, #1e293b 0%, #334155 100%)", position: "relative", overflow: "hidden" }}>
+                  <div className="stat-icon">⚖️</div>
+                  <h6 className="text-uppercase small font-weight-bold opacity-75 mb-3">Chỉ số BMI</h6>
+                  <h2 className="font-weight-bold display-4 mb-0">{patient.bmi}</h2>
+                  <div className="mt-3 small px-3 py-1 d-inline-block" style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "12px" }}>Tình trạng: Bình thường</div>
+                </div>
+              </div>
 
-                  <div className="row mt-4 pt-2">
-                    <div className="col-md-7 mb-4">
-                      <div className="p-4 border-0 bg-light h-100 shadow-sm" style={{ borderRadius: "25px" }}>
-                        <h5 className="font-weight-bold text-primary mb-4" style={{ borderBottom: "3px solid #ffc107", display: "inline-block", paddingBottom: "8px" }}>THÔNG TIN TÀI KHOẢN</h5>
-                        
-                        <div className="d-flex align-items-center mb-3 border-bottom pb-3">
-                          <span className="text-muted font-weight-bold w-40 small">HỌ VÀ TÊN:</span>
-                          <span className="font-weight-bold text-dark ml-3" style={{ fontSize: "1.1rem" }}>
-                            {patient.name || "Chưa cập nhật"}
-                          </span>
-                        </div>
-                        
-                        <div className="d-flex align-items-center mb-3 border-bottom pb-3">
-                          <span className="text-muted font-weight-bold w-40 small">EMAIL:</span>
-                          <span className="text-dark ml-3">
-                            {patient.email || "Chưa cập nhật"}
-                          </span>
-                        </div>
-                        
-                        <div className="d-flex align-items-center mb-1 pb-2">
-                          <span className="text-muted font-weight-bold w-40 small">SỐ ĐIỆN THOẠI:</span>
-                          <span className="text-dark ml-3 font-weight-bold">
-                            {patient.phoneNumber || "Chưa cập nhật"}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="col-md-5 mb-4 text-center">
-                      <div className="p-4 border-0 bg-white shadow-sm h-100 d-flex flex-column align-items-center justify-content-center" style={{ borderRadius: "25px", border: "1px solid #eee" }}>
-                        <img 
-                          src={patient.picture || "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"} 
-                          style={{ width: "140px", height: "140px", borderRadius: "50%", border: "6px solid #ffc107", objectFit: "cover", boxShadow: "0 10px 20px rgba(0,0,0,0.1)" }} 
-                          alt="Profile" 
-                        />
-                        <h5 className="mt-3 font-weight-bold mb-1 text-dark">{patient.name || "Bệnh nhân"}</h5>
-                        <div className="badge badge-pill badge-light text-success border px-3 py-2 mt-2">
-                           <i className="fa fa-check-circle mr-1"></i> Tài khoản xác minh
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div> 
+              <div className="col-md-4 mb-4 d-flex">
+                <div className="card border-0 shadow-sm text-white p-4 w-100 stat-card" style={{ borderRadius: "24px", background: "linear-gradient(135deg, #059669 0%, #10b981 100%)", position: "relative", overflow: "hidden" }}>
+                  <div className="stat-icon">🩸</div>
+                  <h6 className="text-uppercase small font-weight-bold opacity-75 mb-3">Nhóm máu</h6>
+                  <h2 className="font-weight-bold display-4 mb-0">{patient.bloodGroup}</h2>
+                  <div className="mt-3 small px-3 py-1 d-inline-block" style={{ backgroundColor: "rgba(255,255,255,0.1)", borderRadius: "12px" }}>Hệ thống: 2026</div>
+                </div>
+              </div>
+
+              <div className="col-md-4 mb-4 d-flex">
+                <div className="card border-0 shadow p-4 w-100 stat-card" style={{ borderRadius: "24px", background: "#fff", border: "1px solid #e2e8f0", position: "relative", overflow: "hidden" }}>
+                  <div className="stat-icon" style={{ opacity: "0.1" }}>📅</div>
+                  <h6 className="text-uppercase small font-weight-bold text-muted mb-3">Lịch hẹn sắp tới</h6>
+                  <h2 className="font-weight-bold display-4 mb-0" style={{ color: "#fdbb2d" }}>{appointmentCount < 10 ? `0${appointmentCount}` : appointmentCount}</h2>
+                  <div className="mt-3 small font-weight-bold text-secondary">Lịch chờ khám</div>
+                </div>
               </div>
             </div>
+
+            {/* THÔNG TIN CHI TIẾT */}
+            <div className="row mx-0 mt-4">
+              <div className="col-lg-8 mb-4">
+                <div className="p-4 bg-white shadow-sm h-100" style={{ borderRadius: "24px", border: "1px solid #e2e8f0" }}>
+                  <div className="d-flex justify-content-between align-items-center border-bottom pb-3 mb-4">
+                    <h5 className="font-weight-bold mb-0 text-dark">THÔNG TIN CHI TIẾT</h5>
+                    <button 
+                      className={`btn btn-sm px-4 font-weight-bold ${isEditing ? 'btn-success shadow' : 'btn-dark'}`}
+                      style={{ borderRadius: "12px", transition: "0.3s" }}
+                      onClick={isEditing ? handleSave : () => setIsEditing(true)}
+                    >
+                      {isEditing ? "✓ XÁC NHẬN" : "✎ CHỈNH SỬA"}
+                    </button>
+                  </div>
+                  <div className="row">
+                    <div className="col-md-12 mb-4">
+                      <p className="text-muted small font-weight-bold mb-1">HỌ VÀ TÊN</p>
+                      <p className="font-weight-bold h3 text-dark mb-0">{patient.name}</p>
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <p className="text-muted small font-weight-bold mb-1 text-uppercase">Email</p>
+                      {isEditing ? (
+                        <input 
+                          type="email" 
+                          className="form-control custom-input" 
+                          placeholder="Nhập email của bạn..." 
+                          value={tempInfo.email} 
+                          onChange={(e) => setTempInfo({...tempInfo, email: e.target.value})} 
+                        />
+                      ) : (
+                        <p className="font-weight-bold text-secondary h5">{patient.email || "Chưa cập nhật"}</p>
+                      )}
+                    </div>
+                    <div className="col-md-6 mb-3">
+                      <p className="text-muted small font-weight-bold mb-1 text-uppercase">Số điện thoại</p>
+                      {isEditing ? (
+                        <input 
+                          type="text" 
+                          className="form-control custom-input" 
+                          placeholder="Nhập số điện thoại..." 
+                          value={tempInfo.phoneNumber} 
+                          onChange={(e) => setTempInfo({...tempInfo, phoneNumber: e.target.value})} 
+                        />
+                      ) : (
+                        <p className="font-weight-bold text-secondary h5">{patient.phoneNumber || "Chưa cập nhật"}</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="col-lg-4 mb-4 text-center">
+                <div className="p-4 bg-white shadow-sm h-100" style={{ borderRadius: "24px", border: "1px solid #e2e8f0" }}>
+                   <div className="avatar-wrapper mx-auto mb-3" onClick={() => fileInputRef.current.click()}>
+                      <img src={patient.picture || "https://cdn-icons-png.flaticon.com/512/3135/3135715.png"} alt="User" />
+                      <div className="upload-overlay">📷</div>
+                   </div>
+                   <h4 className="font-weight-bold text-dark mb-1">{patient.name}</h4>
+                   <p className="badge badge-light text-muted p-2">Bệnh nhân chính thức</p>
+                   <input type="file" ref={fileInputRef} hidden accept="image/*" onChange={handleAvatarChange} />
+                </div>
+              </div>
+            </div>
+            <div className="mt-5"><Footer /></div>
           </div>
         </div>
-      )}
-
-      <Footer />
+      </div>
 
       <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: #f8f9fa; border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #ffc107; border-radius: 10px; }
-        .w-40 { width: 40%; }
+        .stat-card { transition: transform 0.3s ease, box-shadow 0.3s ease; cursor: default; }
+        .stat-card:hover { transform: translateY(-10px); box-shadow: 0 15px 30px rgba(0,0,0,0.1) !important; }
+        .stat-icon { position: absolute; right: -10px; top: -10px; font-size: 80px; opacity: 0.15; }
+        
+        .custom-input { 
+            border-radius: 12px !important; 
+            border: 2px solid #e2e8f0 !important; 
+            padding: 12px 15px !important; 
+            transition: all 0.3s;
+        }
+        .custom-input:focus { 
+            border-color: #fdbb2d !important; 
+            box-shadow: 0 0 0 4px rgba(253, 187, 45, 0.1) !important; 
+        }
+        .custom-input::placeholder { color: #cbd5e1; font-style: italic; }
+
+        .avatar-wrapper {
+            width: 160px; height: 160px; border-radius: 50%; position: relative;
+            cursor: pointer; border: 6px solid #f8fafc; box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+        .avatar-wrapper img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; }
+        .avatar-wrapper:hover img { filter: brightness(0.8); }
+        .upload-overlay {
+            position: absolute; bottom: 5px; right: 5px; background: #0f172a; color: #fff;
+            width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center;
+            justify-content: center; border: 3px solid #fff;
+        }
       `}</style>
     </div>
   );
 };
 
-export default PaitentDashboard;
+export default PaitentDashboard;              

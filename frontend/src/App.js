@@ -17,6 +17,11 @@ import PerviousAppointments from "./Patient/PerviousAppointments";
 import AppointmentStatus from "./Patient/AppointmentStatus"; 
 import Payment from "./Patient/Payment"; 
 import { AuthContext } from "./Auth/AuthContext";
+import AdminDashboard from "./Pages/AdminDashboard"; 
+import TodaysSchedule from "./Doctor/TodaysSchedule";
+import MedicalServices from "./Patient/MedicalServices";
+import BookingCheckout from "./Patient/BookingCheckout";
+import SearchPackage from "./Patient/SearchPackage";
 
 function App() {
   const [token, setToken] = useState(window.localStorage.getItem("token"));
@@ -26,29 +31,42 @@ function App() {
     <Router>
       <AuthContext.Provider value={{ token, setToken, googleId, setGoogleId }}>
         <Switch>
-          {/* TRANG CHỦ */}
+          {/* TRANG CHỦ GIỮ NGUYÊN */}
           <Route exact path="/" component={Home} />
           
-          {/* --- KHU VỰC BÁC SĨ --- */}
+          {/* --- KHU VỰC BÁC SĨ (ĐÃ SỬA ĐỂ HẾT TRẮNG MÀN HÌNH) --- */}
           <Route exact path="/doctorlogin" component={DoctorLogin} />
-          <Route exact path="/doctor/dashboard" component={DoctorDashboard} />
-          <Route exact path="/doctor/perosnaldetails" component={DoctorDashboard} /> 
-          <Route exact path="/doctor/payment-history" component={DoctorDashboard} />
           
-          {/* --- KHU VỰC KHÁCH HÀNG --- */}
+          {/* Tất cả các tính năng của Bác sĩ đều phải qua DoctorDashboard để hiển thị Sidebar/Navbar */}
+          <Route exact path="/doctor/dashboard" component={DoctorDashboard} />
+          
+          {/* Đã sửa lỗi chính tả từ 'perosnal' thành 'personal' để khớp với Dashboard */}
+          <Route exact path="/doctor/personaldetails" component={DoctorDashboard} /> 
+          
+          <Route exact path="/doctor/payment-history" component={DoctorDashboard} />
+          <Route exact path="/doctor/patient-appointments" component={DoctorDashboard} />
+          
+          {/* Sửa lại cái này để nó nhận diện giao diện Dashboard chung */}
+          <Route exact path="/doctor/today-schedule" component={DoctorDashboard} />
+          
+          {/* --- KHU VỰC KHÁCH HÀNG GIỮ NGUYÊN --- */}
           <Route exact path="/patientlogin" component={PatientLogin} />
           <Route exact path="/registration" component={Registration} />
           <Route exact path="/patient" component={PaitentDashboard} />
           <Route exact path="/patient/searchdoctor" component={SearchDoctor} />
-          
           <Route exact path="/patient/history" component={PerviousAppointments} />
           <Route exact path="/patient/previousappointments" component={PerviousAppointments} />
-          
           <Route exact path="/patient/update-phone" component={PhoneNumber} />
           <Route exact path="/patient/appointment-status" component={AppointmentStatus} />
-          
-          {/* --- THANH TOÁN --- */}
           <Route exact path="/patient/payment" component={Payment} />
+          <Route path="/patient/services" component={MedicalServices} />
+          <Route exact path="/patient/booking-checkout" component={BookingCheckout} />
+          <Route path="/patient/searchpackage" component={SearchPackage} />
+          
+          <Route exact path="/admin/dashboard" component={AdminDashboard} />
+          <Route exact path="/admin/doctors" component={AdminDashboard} />
+          <Route exact path="/admin/appointments" component={AdminDashboard} />
+          <Route exact path="/admin/patients" component={AdminDashboard} />
           
           {/* TRANG LỖI 404 */}
           <Route path="*">
